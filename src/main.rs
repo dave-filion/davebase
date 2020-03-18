@@ -264,11 +264,9 @@ impl DaveBase {
         let val_loc = self.key_dir.get(key.as_str());
         if let Some(val_loc) = val_loc {
             let file_id = val_loc.file_id;
-            println!("key exists in file: {}", file_id);
-            let file_path = dat_file_name(self.data_dir, file_id);
-            println!("value in file: {}", file_path);
 
-            Ok(Option::None)
+            let result = read_val_in(self.data_dir, file_id, val_loc.value_pos, val_loc.value_size);
+            Ok(result.unwrap())
         } else {
             println!("No key: {} in key_dir", key);
             Ok(Option::None)
@@ -415,6 +413,26 @@ mod test {
         match non_key {
             Some(_) => panic!("shouldnt happen"),
             None => assert_eq!(1, 1),
+        }
+    }
+
+    #[test]
+    fn test_get_from_db() {
+        let data_dir = "test-data";
+        let db = DaveBase::new(data_dir);
+        let result = db.get(String::from("bong"));
+        match result {
+            Ok(r) => {
+                if let Some(value) = r {
+                    // good!
+                    println!("value is: {}", value);
+                } else {
+                    panic!("Should have been a value");
+                }
+            },
+            Err(e) => {
+                panic!("Shouldnt be an error")
+            },
         }
     }
 }
