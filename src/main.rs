@@ -12,6 +12,7 @@ use std::collections::HashMap;
 static DATA_DIR: &str = "./data";
 
 // Struct stored in key dir to describe location of values in files
+#[derive(Debug)]
 pub struct ValueLocation {
     file_id: usize,
     timestamp: u64,
@@ -20,6 +21,7 @@ pub struct ValueLocation {
 }
 
 // in-memory data structure pointing keys to their file locations
+#[derive(Debug)]
 pub struct KeyDirectory {
     key_dir: HashMap<String, ValueLocation>,
 }
@@ -108,12 +110,13 @@ fn get_bytes_from_file_u16(mut file: &File, sz: u16) -> Vec<u8> {
 }
 
 // given file, gets next sz bytes and returns in buffer
-fn get_bytes_from_file(mut file: &File, sz: usize) -> Vec<u8> {
+fn get_bytes_from_file(mut file: &File, sz: usize) -> Result<Vec<u8>, Error> {
     let mut buf = Vec::new();
     for _ in 0..sz {
-        buf.push(file.borrow_mut().read_u8().unwrap());
+        let byte = file.read_u8()?;
+        buf.push(byte);
     }
-    buf
+    Ok(buf)
 }
 
 #[derive(Debug)]
@@ -125,35 +128,44 @@ pub struct RowEntry {
     timestamp: u64,
 }
 
-fn parse_file_into_key_dir(file: File, key_dir: &KeyDirectory) {
+fn parse_file_into_key_dir(mut file: File, key_dir: &KeyDirectory) {
     println!("Parsing file {:?} into key dir", file);
 
     // parse row by row
+    while let Some(result) = parse_entry(&mut file) {
+        println!("Parsed row, got entry: {:?}", result);
+    }
 }
 
 fn parse_entry(f: &mut File ) -> Option<RowEntry> {
     // read 3 byte crc
-    let crc_bytes = get_bytes_from_file(f, 3);
+    let maybe_crc_bytes = get_bytes_from_file(f, 3);
+    if let Err(e) = maybe_crc_bytes {
+        println!("No more bytes, got error: {}", e);
+        return None
+    }
+    let crc_bytes = maybe_crc_bytes.unwrap();
+
     let crc = string_from_bytes(crc_bytes);
     println!("crc = {}", crc);
 
     // read 8 byte timestamp
-    let timestamp_bytes = get_bytes_from_file(f, 8);
+    let timestamp_bytes = get_bytes_from_file(f, 8).unwrap();
     let timestamp: u64 = LittleEndian::read_u64(&timestamp_bytes);
     println!("timestamp: {}", timestamp);
 
     // read 2 byte key size
-    let key_size_bytes = get_bytes_from_file(f, 2);
+    let key_size_bytes = get_bytes_from_file(f, 2).unwrap();
     let key_size = LittleEndian::read_u16(&key_size_bytes);
     println!("key size: {}", key_size);
 
     // read 2 byte val size
-    let val_size_bytes = get_bytes_from_file(f, 2);
+    let val_size_bytes = get_bytes_from_file(f, 2).unwrap();
     let value_size = LittleEndian::read_u16(&val_size_bytes);
     println!("val size: {}", value_size);
 
     // read <keysize> key
-    let key_bytes = get_bytes_from_file(f, key_size as usize);
+    let key_bytes = get_bytes_from_file(f, key_size as usize).unwrap();
     let key = string_from_bytes(key_bytes);
     println!("Key: {}", key);
 
@@ -162,7 +174,7 @@ fn parse_entry(f: &mut File ) -> Option<RowEntry> {
     println!("Value starts at byte position: {}", value_pos);
 
     // read <valsize> value
-    let val_bytes = get_bytes_from_file(f, value_size as usize);
+    let val_bytes = get_bytes_from_file(f, value_size as usize).unwrap();
     let value = string_from_bytes(val_bytes);
     println!("Val: {}", value);
 
@@ -302,8 +314,10 @@ fn main() {
     println!("Starting davebase with data dir: {}", data_dir_path);
 
     let mut db = DaveBase::new(data_dir_path);
+    println!("generating test file");
 
     db.write_entry("foi".to_string(), "bazz".to_string());
+    db.write_entry("bong".to_string(), "howitzer".to_string());
 }
 
 #[cfg(test)]
@@ -314,14 +328,14 @@ mod test {
     fn test_bytes_from_file_and_convert_to_string() {
         let path = "test-data/1.dat";
         let file = File::open(path).unwrap();
-        let result = get_bytes_from_file(&file, 3);
+        let result = get_bytes_from_file(&file, 3).unwrap();
         assert_eq!(result.len(), 3);
 
         let string = string_from_bytes(result);
         assert_eq!(string, "CRC");
 
         // get next bytes and convert to timestamp
-        let timestamp_bytes = get_bytes_from_file(&file, 8);
+        let timestamp_bytes = get_bytes_from_file(&file, 8).unwrap();
         let timestamp: u64 = LittleEndian::read_u64(&timestamp_bytes);
         println!("timestamp: {}", timestamp);
         assert_eq!(1584550857, timestamp);
@@ -350,5 +364,12 @@ mod test {
             .expect("Cant read val")
             .unwrap();
         assert_eq!("bazz", result);
+    }
+
+    #[test]
+    fn test_init_key_dir() {
+        let data_dir = "test-data";
+        let key_dir = init_key_dir(data_dir);
+        println!("{:?}", key_dir);
     }
 }
