@@ -7,11 +7,39 @@ extern crate byteorder;
 
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::borrow::BorrowMut;
+use std::collections::HashMap;
 
 static DATA_DIR: &str = "./data";
+
+// Struct stored in key dir to describe location of values in files
+pub struct ValueLocation {
+    file_id: usize,
+    timestamp: u64,
+    value_pos: usize, // offset of value from start of file
+    value_size: u16,  // size of value in bytes
+}
+
+// in-memory data structure pointing keys to their file locations
+pub struct KeyDirectory {
+    key_dir: HashMap<String, ValueLocation>,
+}
+
+impl KeyDirectory {
+    pub fn new() -> KeyDirectory {
+        KeyDirectory {
+            key_dir: HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, key: &str) -> Option<&ValueLocation> {
+        self.key_dir.get(key)
+    }
+}
+
 fn dat_file_name(data_dir: &str, i: usize) -> String {
     format!("{}/{}.dat", data_dir, i)
 }
+
 // Opens latest file and returns ownership
 fn get_active_file(data_dir_path: &str) -> File {
     // open active file in data dir
@@ -72,21 +100,70 @@ fn int_64_to_byte_array(i: u64) -> [u8; 8] {
 }
 
 // given file, gets next sz bytes and returns in buffer
-fn get_bytes_from_file(mut file: File, sz: usize) -> (File, Vec<u8>) {
+fn get_bytes_from_file(mut file: &File, sz: usize) -> Vec<u8> {
     let mut buf = Vec::new();
     for _ in 0..sz {
         buf.push(file.borrow_mut().read_u8().unwrap());
     }
-    (file, buf)
+    buf
 }
 
 #[derive(Debug)]
 pub struct RowEntry {
     key: String,
     value: String,
-    value_sz: usize,
+    value_sz: u16,
     value_pos: usize,
     timestamp: u64,
+}
+
+fn parse_file_into_key_dir(file: File, key_dir: &KeyDirectory) {
+    println!("Parsing file {:?} into key dir", file);
+
+    // parse row by row
+}
+
+fn parse_entry(f: &File, file_id: usize) -> Option<RowEntry> {
+    // read 3 byte crc
+    let crc_bytes = get_bytes_from_file(f, 3);
+    let crc = string_from_bytes(crc_bytes);
+    println!("crc = {}", crc);
+
+    // read 8 byte timestamp
+    let timestamp_bytes = get_bytes_from_file(f, 8);
+    let timestamp: u64 = LittleEndian::read_u64(&timestamp_bytes);
+    println!("timestamp: {}", timestamp);
+
+    // read 2 byte key size
+    let key_size_bytes = get_bytes_from_file(f, 2);
+    let key_size = LittleEndian::read_u16(&key_size_bytes);
+    println!("key size: {}", key_size);
+
+    // read 2 byte val size
+    let val_size_bytes = get_bytes_from_file(f, 2);
+    let value_size = LittleEndian::read_u16(&val_size_bytes);
+    println!("val size: {}", value_size);
+
+    // read <keysize> key
+    let key_bytes = get_bytes_from_file(f, key_size as usize);
+    let key = string_from_bytes(key_bytes);
+    println!("Key: {}", key);
+
+    // read <valsize> value
+    // NOTE val position here
+    // figure out how to set this
+    let value_pos = 0;
+    let val_bytes = get_bytes_from_file(f, value_size as usize);
+    let value = string_from_bytes(val_bytes);
+    println!("Val: {}", value);
+
+    Some(RowEntry {
+        key,
+        value,
+        value_sz: value_size,
+        value_pos,
+        timestamp,
+    })
 }
 
 fn parse_file(path: String) -> RowEntry {
@@ -114,34 +191,72 @@ fn parse_file(path: String) -> RowEntry {
 
     // Read 2 byte value size
     let bytes_read = file.read(&mut sz_buf).unwrap();
-    let val_sz = sz_buf[0].clone() as usize;
+    let val_sz = sz_buf[0].clone();
 
-    let (file, key_bytes) = get_bytes_from_file(file, key_sz);
+    let key_bytes = get_bytes_from_file(&file, key_sz);
     let key_string = string_from_bytes(key_bytes);
 
-    let (file, val_bytes) = get_bytes_from_file(file, val_sz);
+    let val_bytes = get_bytes_from_file(&file, val_sz as usize);
     let val_string = string_from_bytes(val_bytes);
 
     RowEntry {
         key: key_string,
         value: val_string,
-        value_sz: val_sz,
+        value_sz: val_sz as u16,
         value_pos: (3 + 2 + 2 + key_sz),
         timestamp,
     }
+}
+
+pub fn init_key_dir(data_dir: &str) -> KeyDirectory {
+    println!("Initializing key dir from data dir={}", data_dir);
+    let key_dir = KeyDirectory::new();
+
+    // get all files in data dir
+    let files = std::fs::read_dir(data_dir).expect("Data dir doesnt exist");
+
+    for file in files {
+        let file = File::open(file.unwrap().path());
+        parse_file_into_key_dir(file.unwrap(), &key_dir);
+    }
+
+    key_dir
 }
 
 // Db struct
 pub struct DaveBase {
     active_file: File,
     current_file_index: usize,
+    key_dir: KeyDirectory,
+    data_dir: &'static str,
 }
 
 impl DaveBase {
-    pub fn new(data_path: &str) -> DaveBase {
+    pub fn new(data_path: &'static str) -> DaveBase {
+        // need to build key_dir from all files in data_dir
+        let key_dir = init_key_dir(data_path);
+
         DaveBase {
             active_file: get_active_file(data_path),
             current_file_index: 0,
+            key_dir,
+            data_dir: data_path,
+        }
+    }
+
+    pub fn get(&self, key: String) -> Result<Option<String>, Error> {
+        // look up key in keydir
+        let val_loc = self.key_dir.get(key.as_str());
+        if let Some(val_loc) = val_loc {
+            let file_id = val_loc.file_id;
+            println!("key exists in file: {}", file_id);
+            let file_path = dat_file_name(self.data_dir, file_id);
+            println!("value in file: {}", file_path);
+
+            Ok(Option::None)
+        } else {
+            println!("No key: {} in key_dir", key);
+            Ok(Option::None)
         }
     }
 
@@ -219,7 +334,7 @@ mod test {
 
     #[test]
     fn test_parse_file() {
-        let path = "data/test-copy.dat";
+        let path = "data/1.dat";
         let row = parse_file(String::from(path));
         println!("parsed row {:?}", row);
         assert_eq!(row.key, "foi");
@@ -228,17 +343,32 @@ mod test {
 
     #[test]
     fn test_bytes_from_file_and_convert_to_string() {
-        let path = "data/test-copy.dat";
-        let (file, result) = get_bytes_from_file(File::open(path).unwrap(), 3);
+        let path = "test-data/1.dat";
+        let file = File::open(path).unwrap();
+        let result = get_bytes_from_file(&file, 3);
         assert_eq!(result.len(), 3);
 
         let string = string_from_bytes(result);
         assert_eq!(string, "CRC");
 
         // get next bytes and convert to timestamp
-        let (file, timestamp_bytes) = get_bytes_from_file(file, 8);
+        let timestamp_bytes = get_bytes_from_file(&file, 8);
         let timestamp: u64 = LittleEndian::read_u64(&timestamp_bytes);
         println!("timestamp: {}", timestamp);
         assert_eq!(1584550857, timestamp);
+    }
+
+    #[test]
+    fn test_parse_row_entry() {
+        let file = File::open("test-data/1.dat").unwrap();
+        let result = parse_entry(&file, 1);
+        println!("Result: {:?}", result);
+    }
+
+    #[test]
+    fn test_get_value() {
+        let data_dir = "test-data";
+        let db = DaveBase::new(data_dir);
+        let result = db.get("foi".to_string());
     }
 }
