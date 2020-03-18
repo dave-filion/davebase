@@ -16,7 +16,7 @@ static DATA_DIR: &str = "./data";
 pub struct ValueLocation {
     file_id: usize,
     timestamp: u64,
-    value_pos: usize, // offset of value from start of file
+    value_pos: u64, // offset of value from start of file
     value_size: u16,  // size of value in bytes
 }
 
@@ -35,6 +35,10 @@ impl KeyDirectory {
 
     pub fn get(&self, key: &str) -> Option<&ValueLocation> {
         self.key_dir.get(key)
+    }
+
+    pub fn set(&mut self, key: String, val: ValueLocation) {
+        self.key_dir.insert(key, val);
     }
 }
 
@@ -128,12 +132,21 @@ pub struct RowEntry {
     timestamp: u64,
 }
 
-fn parse_file_into_key_dir(mut file: File, key_dir: &KeyDirectory) {
-    println!("Parsing file {:?} into key dir", file);
+fn parse_file_into_key_dir(file_id: usize, data_dir: &str, key_dir: &mut KeyDirectory) {
+    let path = dat_file_name(data_dir, file_id);
+
+    let mut file = File::open(path)
+        .expect("Cannot open data file");
 
     // parse row by row
     while let Some(result) = parse_entry(&mut file) {
         println!("Parsed row, got entry: {:?}", result);
+        key_dir.set(result.key, ValueLocation{
+            file_id,
+            timestamp: result.timestamp,
+            value_pos: result.value_pos,
+            value_size: result.value_sz,
+        })
     }
 }
 
@@ -200,14 +213,26 @@ pub fn read_val_in(data_dir: &str, file_id: usize, value_pos: u64, value_size: u
 
 pub fn init_key_dir(data_dir: &str) -> KeyDirectory {
     println!("Initializing key dir from data dir={}", data_dir);
-    let key_dir = KeyDirectory::new();
+    let mut key_dir = KeyDirectory::new();
 
     // get all files in data dir
     let files = std::fs::read_dir(data_dir).expect("Data dir doesnt exist");
 
+    // find all file ids
+    let mut file_ids = Vec::new();
     for file in files {
-        let file = File::open(file.unwrap().path());
-        parse_file_into_key_dir(file.unwrap(), &key_dir);
+        file_ids.push(file.unwrap()
+            .path()
+            .file_stem().unwrap()
+            .to_str().unwrap()
+            .parse::<usize>().unwrap());
+    }
+
+    // sort ids in order (lower is older)
+    file_ids.sort();
+
+    for id in file_ids {
+        parse_file_into_key_dir(id, data_dir, &mut key_dir);
     }
 
     key_dir
@@ -371,5 +396,25 @@ mod test {
         let data_dir = "test-data";
         let key_dir = init_key_dir(data_dir);
         println!("{:?}", key_dir);
+        assert_eq!(2, key_dir.key_dir.keys().len());
+        let foi_key = key_dir.get("foi");
+        // should be in file 2
+        assert_eq!(2, foi_key.unwrap().file_id);
+        // in position 18
+        assert_eq!(18, foi_key.unwrap().value_pos);
+        // with size of 4
+        assert_eq!(4, foi_key.unwrap().value_size);
+
+        let bong = key_dir.get("bong").unwrap();
+        assert_eq!(2, bong.file_id);
+        assert_eq!(41, bong.value_pos);
+        assert_eq!(8, bong.value_size);
+
+        let non_key = key_dir.get("whahaha");
+        // should be error
+        match non_key {
+            Some(_) => panic!("shouldnt happen"),
+            None => assert_eq!(1, 1),
+        }
     }
 }
