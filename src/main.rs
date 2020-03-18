@@ -1,10 +1,12 @@
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
-use std::io::Error;
+use std::io::{Error, Bytes};
+use std::io;
 use std::time::{SystemTime};
 extern crate byteorder;
 
-use byteorder::{LittleEndian, WriteBytesExt};
+use byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
+use std::borrow::BorrowMut;
 
 static DATA_DIR: &str = "./data";
 fn dat_file_name(data_dir: &str, i: usize) -> String {
@@ -61,79 +63,121 @@ fn int_64_to_byte_array(i : u64) -> [u8; 8] {
     timestamp_byte_array
 }
 
+fn get_bytes_from_file(mut file: File, sz: usize) -> (File, String) {
+    let mut buf = Vec::new();
+    let mut i = 0;
+    loop {
+        if i >= sz {
+            break;
+        }
+        println!("i ={} key_sz = {}", i, sz);
+        buf.push(file.borrow_mut().read_u8().unwrap());
+        i+=1;
+    }
+    (file, String::from(std::str::from_utf8(buf.as_slice()).unwrap()))
+}
+
+#[derive(Debug)]
+pub struct RowEntry {
+    key: String,
+    value: String,
+    value_sz: usize,
+    value_pos: usize,
+}
+
+fn parse_file(path : String) -> RowEntry {
+    let mut file = File::open(path).unwrap();
+    // Read 3 byte CRC
+    let mut crc_buff = [0u8; 3];
+    let bytes_read = file.read(&mut crc_buff).unwrap();
+    let crc_string = std::str::from_utf8(&crc_buff).unwrap();
+
+    // Read 8 byte timestamp
+    // TODO missing
+
+    // Read 2 byte key size
+    let mut sz_buf = [0u8;2];
+    let bytes_read = file.read(&mut sz_buf).unwrap();
+    let key_sz = sz_buf[0].clone() as usize;
+    println!("Key size.{} bytes read: {}, buffer => {:?}", key_sz, bytes_read, sz_buf);
+    // TODO: hack, just taking first byte and using digit
+
+    // Read 2 byte value size
+    let bytes_read = file.read(&mut sz_buf).unwrap();
+    let val_sz = sz_buf[0].clone() as usize;
+
+    let (file, key_string) = get_bytes_from_file(file, key_sz);
+    let (file, val_string) = get_bytes_from_file(file, val_sz);
+
+    RowEntry{
+        key: key_string,
+        value: val_string,
+        value_sz: val_sz,
+        value_pos: (3 + 2 + 2 + key_sz)
+    }
+}
+
 // Db struct
 pub struct DaveBase {
-    active_file: File
+    active_file: File,
+    current_file_index: usize,
 }
 
 impl DaveBase {
 
     pub fn new(data_path: &str) -> DaveBase {
         DaveBase{
-            active_file: get_active_file(data_path)
+            active_file: get_active_file(data_path),
+            current_file_index: 0
         }
     }
 
     pub fn read_file_row(&self) -> Result<(), Error> {
         println!("Reading first row of active file");
 
+        Ok(())
     }
 
     // Writes a key value entry into active file
     pub fn write_entry(&mut self, key: String, value: String) -> Result<(), Error> {
+        // go to next offset based on current index
+        println!("Seeking to current index:{}", self.current_file_index);
+        self.active_file.seek(std::io::SeekFrom::Start(self.current_file_index as u64));
         println!("Writing entry: {} = {}", key, value);
-        // get size of key in bytes
+
         let key_bytes = key.into_bytes();
-        let ksz = key_bytes.len();
-        println!("key is {} bytes long", ksz);
-
-        // get size of val in bytes
         let val_bytes = value.into_bytes();
-        let valsz = val_bytes.len();
-        println!("value is {} bytes long", valsz);
 
-        // get current timestamp represented by 32bit int
-        let timestamp = chrono::Utc::now();
-        let tmstmp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
-            .expect("Couldnt get system time");
-        let secs = tmstmp.as_secs();
-        println!("Now systemtime = {} sizeof = {:?} bytes", secs, std::mem::size_of_val(&secs));
+        // get current timestamp represented by 64 int
+        let secs = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+            .expect("Couldnt get system time").as_secs();
+
         // convert u64 to byte array (u8)
         let timestamp_byte_array = int_64_to_byte_array(secs);
-        println!("timestamp byte array: {:?}  len = {}", timestamp_byte_array, timestamp_byte_array.len());
+        //TODO: write this
 
-        // write row
+        let mut total_byte_offset = 0;
+
+        ////// WRITE ROW
         let header = "CRC";
-        let header = self.active_file.write(header.as_bytes())
-            .expect("Couldnt write header to file");
-        println!("Header written size: {} bytes", header);
+        total_byte_offset += self.active_file.write(header.as_bytes()).unwrap();
 
         // key size (16 bits / 2 bytes)
-        println!("key size={}, sizeof={:?}", ksz, std::mem::size_of_val(&ksz));
-        let ksz_byte_array = int_16_to_byte_array(ksz as u16);
-        println!("ksz_byte_array= {:?} len = {}", ksz_byte_array, ksz_byte_array.len());
-        let write_size = self.active_file.write(&ksz_byte_array)
-            .expect("Couldnt write key size");
-        println!("Write size in bytes: {:?}", write_size);
+        let ksz_byte_array = int_16_to_byte_array(key_bytes.len() as u16);
+        total_byte_offset += self.active_file.write(&ksz_byte_array).unwrap();
 
         // value size (16 bits / 2 bytes)
-        println!("value size={}", valsz);
-        // TODO reuse same buffer
-        let value_size_byte_array = int_16_to_byte_array(valsz as u16);
-        println!("value_size_byte_array= {:?} len = {}", value_size_byte_array, value_size_byte_array.len());
-        let write_size = self.active_file.write(&value_size_byte_array)
-            .expect("Couldnt write value size");
-        println!("Write size in bytes: {:?}", write_size);
+        let value_size_byte_array = int_16_to_byte_array(val_bytes.len() as u16);
+        total_byte_offset += self.active_file.write(&value_size_byte_array).unwrap();
 
         // Key
-        let write_size = self.active_file.write(&key_bytes)
-            .expect("Couldnt write key");
-        println!("Write size (key) in bytes: {:?}", write_size);
+        total_byte_offset += self.active_file.write(&key_bytes).unwrap();
 
         // Value
-        let write_size = self.active_file.write(&val_bytes)
-            .expect("Couldnt write value");
-        println!("Write size (val) in bytes: {:?}", write_size);
+        total_byte_offset += self.active_file.write(&val_bytes).unwrap();
+
+        println!("Finished, total row bytes : {}", total_byte_offset);
+        self.current_file_index += total_byte_offset;
 
         Ok(())
     }
@@ -149,9 +193,18 @@ fn main() {
 
     let mut db = DaveBase::new(data_dir_path);
 
-    db.read_file_row();
-
-//    db.write_entry("foo".to_string(), "ooogogosdjflaksfjlakwjlakjflwakjldskdjalskdjalkwjlakwlakwjdlakjwldkajwldkj".to_string());
-
+    db.write_entry("foi".to_string(), "bazz".to_string());
 }
 
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_parse_file() {
+        let path = "data/1.dat";
+        let row = parse_file(String::from(path));
+        println!("parsed row {:?}", row);
+    }
+
+}
