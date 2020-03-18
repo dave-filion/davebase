@@ -71,15 +71,11 @@ fn int_64_to_byte_array(i: u64) -> [u8; 8] {
     timestamp_byte_array
 }
 
+// given file, gets next sz bytes and returns in buffer
 fn get_bytes_from_file(mut file: File, sz: usize) -> (File, Vec<u8>) {
     let mut buf = Vec::new();
-    let mut i = 0;
-    loop {
-        if i >= sz {
-            break;
-        }
+    for _ in 0..sz {
         buf.push(file.borrow_mut().read_u8().unwrap());
-        i += 1;
     }
     (file, buf)
 }
@@ -234,10 +230,15 @@ mod test {
     fn test_bytes_from_file_and_convert_to_string() {
         let path = "data/test-copy.dat";
         let (file, result) = get_bytes_from_file(File::open(path).unwrap(), 3);
-        println!("bytes => {:?}", result);
         assert_eq!(result.len(), 3);
 
         let string = string_from_bytes(result);
         assert_eq!(string, "CRC");
+
+        // get next bytes and convert to timestamp
+        let (file, timestamp_bytes) = get_bytes_from_file(file, 8);
+        let timestamp: u64 = LittleEndian::read_u64(&timestamp_bytes);
+        println!("timestamp: {}", timestamp);
+        assert_eq!(1584550857, timestamp);
     }
 }
