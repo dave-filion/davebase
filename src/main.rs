@@ -1,6 +1,6 @@
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
-use std::io::Error;
+use std::io::{Error, Cursor, SeekFrom};
 use std::time::SystemTime;
 
 extern crate byteorder;
@@ -99,6 +99,14 @@ fn int_64_to_byte_array(i: u64) -> [u8; 8] {
     timestamp_byte_array
 }
 
+fn get_bytes_from_file_u16(mut file: &File, sz: u16) -> Vec<u8> {
+    let mut buf = Vec::new();
+    for _ in 0..sz {
+        buf.push(file.borrow_mut().read_u8().unwrap());
+    }
+    buf
+}
+
 // given file, gets next sz bytes and returns in buffer
 fn get_bytes_from_file(mut file: &File, sz: usize) -> Vec<u8> {
     let mut buf = Vec::new();
@@ -113,7 +121,7 @@ pub struct RowEntry {
     key: String,
     value: String,
     value_sz: u16,
-    value_pos: usize,
+    value_pos: u64,
     timestamp: u64,
 }
 
@@ -123,7 +131,7 @@ fn parse_file_into_key_dir(file: File, key_dir: &KeyDirectory) {
     // parse row by row
 }
 
-fn parse_entry(f: &File, file_id: usize) -> Option<RowEntry> {
+fn parse_entry(f: &mut File ) -> Option<RowEntry> {
     // read 3 byte crc
     let crc_bytes = get_bytes_from_file(f, 3);
     let crc = string_from_bytes(crc_bytes);
@@ -149,10 +157,11 @@ fn parse_entry(f: &File, file_id: usize) -> Option<RowEntry> {
     let key = string_from_bytes(key_bytes);
     println!("Key: {}", key);
 
+    // GET VALUE POSITION
+    let value_pos = f.seek(SeekFrom::Current(0)).unwrap();
+    println!("Value starts at byte position: {}", value_pos);
+
     // read <valsize> value
-    // NOTE val position here
-    // figure out how to set this
-    let value_pos = 0;
     let val_bytes = get_bytes_from_file(f, value_size as usize);
     let value = string_from_bytes(val_bytes);
     println!("Val: {}", value);
@@ -166,46 +175,15 @@ fn parse_entry(f: &File, file_id: usize) -> Option<RowEntry> {
     })
 }
 
-fn parse_file(path: String) -> RowEntry {
-    let mut file = File::open(path).unwrap();
-    // Read 3 byte CRC
-    let mut crc_buff = [0u8; 3];
-    let bytes_read = file.read(&mut crc_buff).unwrap();
-    let crc_string = std::str::from_utf8(&crc_buff).unwrap();
-
-    // Read 8 byte timestamp
-    let mut timestamp_buf = [0u8; 8]; //u64 so 8 bytes long
-    let bytes_read = file.read(&mut timestamp_buf).unwrap();
-    // convert byte array to u64
-    let timestamp: u64 = LittleEndian::read_u64(&timestamp_buf);
-
-    // Read 2 byte key size
-    let mut sz_buf = [0u8; 2];
-    let bytes_read = file.read(&mut sz_buf).unwrap();
-    let key_sz = sz_buf[0].clone() as usize;
-    println!(
-        "Key size.{} bytes read: {}, buffer => {:?}",
-        key_sz, bytes_read, sz_buf
-    );
-    // TODO: hack, just taking first byte and using digit
-
-    // Read 2 byte value size
-    let bytes_read = file.read(&mut sz_buf).unwrap();
-    let val_sz = sz_buf[0].clone();
-
-    let key_bytes = get_bytes_from_file(&file, key_sz);
-    let key_string = string_from_bytes(key_bytes);
-
-    let val_bytes = get_bytes_from_file(&file, val_sz as usize);
-    let val_string = string_from_bytes(val_bytes);
-
-    RowEntry {
-        key: key_string,
-        value: val_string,
-        value_sz: val_sz as u16,
-        value_pos: (3 + 2 + 2 + key_sz),
-        timestamp,
-    }
+pub fn read_val_in(data_dir: &str, file_id: usize, value_pos: u64, value_size: u16) -> Result<Option<String>, Error> {
+    println!("Fetching value in file: {}, value_pos: {}, size: {}", file_id, value_pos, value_size);
+    let file_path = dat_file_name(data_dir, file_id);
+    let mut file = File::open(file_path)?;
+    let new_pos = file.seek(SeekFrom::Start(value_pos))?;
+    println!("Seeked to pos: {}", new_pos);
+    let value_bytes = get_bytes_from_file_u16(&file, value_size);
+    let value_string = string_from_bytes(value_bytes);
+    Ok(Some(value_string))
 }
 
 pub fn init_key_dir(data_dir: &str) -> KeyDirectory {
@@ -333,15 +311,6 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_parse_file() {
-        let path = "data/1.dat";
-        let row = parse_file(String::from(path));
-        println!("parsed row {:?}", row);
-        assert_eq!(row.key, "foi");
-        assert_eq!(row.value, "bazz");
-    }
-
-    #[test]
     fn test_bytes_from_file_and_convert_to_string() {
         let path = "test-data/1.dat";
         let file = File::open(path).unwrap();
@@ -360,8 +329,8 @@ mod test {
 
     #[test]
     fn test_parse_row_entry() {
-        let file = File::open("test-data/1.dat").unwrap();
-        let result = parse_entry(&file, 1);
+        let mut file = File::open("test-data/1.dat").unwrap();
+        let result = parse_entry(&mut file);
         println!("Result: {:?}", result);
     }
 
@@ -370,5 +339,16 @@ mod test {
         let data_dir = "test-data";
         let db = DaveBase::new(data_dir);
         let result = db.get("foi".to_string());
+    }
+
+    #[test]
+    fn test_get_value_from_file() {
+        let data_dir = "test-data";
+        // read value in file 1
+        // should be bazz
+        let result = read_val_in(data_dir, 1, 18, 4)
+            .expect("Cant read val")
+            .unwrap();
+        assert_eq!("bazz", result);
     }
 }
