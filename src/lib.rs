@@ -2,7 +2,8 @@ use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::{Error, SeekFrom};
 use std::time::SystemTime;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[macro_use] extern crate log;
 
 extern crate byteorder;
 
@@ -10,7 +11,6 @@ use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 
-static DATA_DIR: &str = "./data";
 const MAX_BYTES : u64 = 512; // max bytes for file before new one is created
 
 // Struct stored in key dir to describe location of values in files
@@ -40,17 +40,14 @@ fn get_active_file(data_dir_path: &str) -> (usize, File) {
     let data_files = std::fs::read_dir(data_dir_path).expect("Need to create data dir");
 
     let mut latest = 0;
-    for (_i, file) in data_files.enumerate() {
+    for (_i, _file) in data_files.enumerate() {
         latest += 1;
-
-        let file = file.unwrap();
-        let path = file.path();
     }
 
-    let (mut active_file, file_id) = {
+    let (active_file, file_id) = {
         if latest == 0 {
             let file_path = dat_file_name(data_dir_path, 1);
-            println!(
+            debug!(
                 "No files exist in data dir, creating first at: {}",
                 file_path.to_str().unwrap()
             );
@@ -61,7 +58,7 @@ fn get_active_file(data_dir_path: &str) -> (usize, File) {
         }
     };
 
-    let mut active_file = active_file.expect("Can't open active file");
+    let active_file = active_file.expect("Can't open active file");
 
     (file_id, active_file)
 }
@@ -138,12 +135,13 @@ fn parse_file_into_key_dir(file_id: usize, data_dir: &str, key_dir: &mut KeyDire
 fn parse_row(f: &mut File ) -> Option<RowEntry> {
     // read 3 byte crc
     let maybe_crc_bytes = get_bytes_from_file(f, 3);
-    if let Err(e) = maybe_crc_bytes {
+    if let Err(_) = maybe_crc_bytes {
         return None
     }
-    let crc_bytes = maybe_crc_bytes.unwrap();
 
-    let crc = string_from_bytes(crc_bytes);
+    // TODO: should validate on the first section
+    let crc_bytes = maybe_crc_bytes.unwrap();
+    let _crc = string_from_bytes(crc_bytes);
 
     // read 8 byte timestamp
     let timestamp_bytes = get_bytes_from_file(f, 8).unwrap();
@@ -181,7 +179,7 @@ fn parse_row(f: &mut File ) -> Option<RowEntry> {
 pub fn read_val_in(data_dir: &str, file_id: usize, value_pos: u64, value_size: u16) -> Result<Option<String>, Error> {
     let file_path = dat_file_name(data_dir, file_id);
     let mut file = File::open(file_path)?;
-    let new_pos = file.seek(SeekFrom::Start(value_pos))?;
+    file.seek(SeekFrom::Start(value_pos))?;
     let value_bytes = get_bytes_from_file_u16(&file, value_size);
     let value_string = string_from_bytes(value_bytes);
     Ok(Some(value_string))
@@ -189,7 +187,7 @@ pub fn read_val_in(data_dir: &str, file_id: usize, value_pos: u64, value_size: u
 
 // Initializes key_dir map given files in data_dir
 pub fn init_key_dir(data_dir: &str) -> KeyDirectory {
-    println!("Initializing key dir from data dir={}", data_dir);
+    debug!("Initializing key dir from data dir={}", data_dir);
     let mut key_dir = KeyDirectory::new();
 
     // get all files in data dir
@@ -212,7 +210,7 @@ pub fn init_key_dir(data_dir: &str) -> KeyDirectory {
         parse_file_into_key_dir(id, data_dir, &mut key_dir);
     }
 
-    println!("KEY-DIR AFTER INIT: {:#?}", key_dir);
+    debug!("KEY-DIR AFTER INIT: {:#?}", key_dir);
 
     key_dir
 }
@@ -230,7 +228,7 @@ impl DaveBase {
         // need to build key_dir from all files in data_dir
         let key_dir = init_key_dir(data_dir);
         let (active_file_id, active_file) = get_active_file(data_dir);
-        println!("Creating new DB with active_file_id = {}", active_file_id);
+        debug!("Creating new DB with active_file_id = {}", active_file_id);
 
         DaveBase {
             active_file,
@@ -248,14 +246,14 @@ impl DaveBase {
             let result = read_val_in(self.data_dir, file_id, val_loc.value_pos, val_loc.value_size);
             Ok(result.unwrap())
         } else {
-            println!("No key: {} in key_dir", key);
+            debug!("No key: {} in key_dir", key);
             Ok(Option::None)
         }
     }
 
     // Writes a key value entry into active file
     pub fn set(&mut self, key: String, value: String) -> Result<(), Error> {
-        println!("Setting {} -> {} (active file: {})", key, value, self.active_file_id);
+        debug!("Setting {} -> {} (active file: {})", key, value, self.active_file_id);
         let key_bytes = key.as_bytes();
         let val_bytes = value.as_bytes();
 
@@ -305,10 +303,10 @@ impl DaveBase {
         // and move the active file pointer here
         //TODO: using value_pos as lose reference now, do it right
         if value_pos > MAX_BYTES{
-            println!("ACTIVE FILE HAS MORE BYTES THEN MAX: {}", value_pos);
+            debug!("ACTIVE FILE HAS MORE BYTES THEN MAX: {}", value_pos);
             let new_file_id = self.active_file_id + 1;
             let file_path = dat_file_name(self.data_dir, new_file_id);
-            println!("Created new file: {}, setting as active", file_path.to_str().unwrap());
+            debug!("Created new file: {}, setting as active", file_path.to_str().unwrap());
             let new_file = File::create(file_path).expect("Cant open new active file");
             self.active_file = new_file;
             self.active_file_id = new_file_id;

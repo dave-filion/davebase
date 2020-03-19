@@ -1,30 +1,21 @@
-use std::fs::{File, OpenOptions};
-use std::io::prelude::*;
-use std::io::{Error, Cursor, SeekFrom};
-use std::time::SystemTime;
-
-use davebase::*;
-extern crate byteorder;
-
 #[macro_use] extern crate log;
 use log::Level;
+use std::io::{Error};
+use davebase::*;
 
-static DATA_DIR : &str = "./data";
 
 fn main() -> Result<(), Error>{
+    // Load env variables and init logger
     dotenv::dotenv().ok();
-
     env_logger::init();
 
     if log_enabled!(Level::Debug) {
         debug!("arg len = {}", std::env::args().len());
-        for arg in std::env::args() {
-            println!("arg => {}", arg);
-        }
     }
 
     info!("Starting davebase...");
 
+    let _db = DaveBase::new("data");
 
 //    let data_dir_path = DATA_DIR;
 //    println!("Starting davebase with data dir: {}", data_dir_path);
