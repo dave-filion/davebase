@@ -6,18 +6,35 @@ use std::time::SystemTime;
 use davebase::*;
 extern crate byteorder;
 
+#[macro_use] extern crate log;
+use log::Level;
+
 static DATA_DIR : &str = "./data";
 
 fn main() -> Result<(), Error>{
-    let data_dir_path = DATA_DIR;
-    println!("Starting davebase with data dir: {}", data_dir_path);
+    dotenv::dotenv().ok();
 
-    let mut db = DaveBase::new(data_dir_path);
+    env_logger::init();
 
-    db.set(String::from("heyo"), String::from("comeon there it is"));
+    if log_enabled!(Level::Debug) {
+        debug!("arg len = {}", std::env::args().len());
+        for arg in std::env::args() {
+            println!("arg => {}", arg);
+        }
+    }
 
-    let val = db.get("heyo")?;
-    println!("value = {}", val.unwrap());
+    info!("Starting davebase...");
+
+
+//    let data_dir_path = DATA_DIR;
+//    println!("Starting davebase with data dir: {}", data_dir_path);
+//
+//    let mut db = DaveBase::new(data_dir_path);
+//
+//    db.set(String::from("heyo"), String::from("comeon there it is"));
+//
+//    let val = db.get("heyo")?;
+//    println!("value = {}", val.unwrap());
 
     Ok(())
 }
