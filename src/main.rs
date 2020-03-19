@@ -2,12 +2,32 @@
 use log::Level;
 use std::io::{Error};
 use davebase::*;
+use std::fs::{File, OpenOptions};
+use std::io::prelude::*;
 
+// loads dictionary file and returns vec of all words
+fn load_word_dict() -> Vec<String> {
+    let mut f = File::open("words.txt")
+        .expect("Need words.txt");
+    let mut big_string = String::new();
+    let result = f.read_to_string(&mut big_string)
+        .expect("couldnt read dict to string");
+
+    debug!("Read {} bytes into string", result);
+
+    let all_words : Vec<String> = big_string.split("\n").map(|s| s.to_string()).collect();
+    all_words
+}
 
 fn main() -> Result<(), Error>{
     // Load env variables and init logger
     dotenv::dotenv().ok();
     env_logger::init();
+
+    info!("Loading dictionary...");
+    let all_words = load_word_dict();
+
+    debug!("{} words loaded", all_words.len());
 
     if log_enabled!(Level::Debug) {
         debug!("arg len = {}", std::env::args().len());
@@ -16,16 +36,6 @@ fn main() -> Result<(), Error>{
     info!("Starting davebase...");
 
     let _db = DaveBase::new("data");
-
-//    let data_dir_path = DATA_DIR;
-//    println!("Starting davebase with data dir: {}", data_dir_path);
-//
-//    let mut db = DaveBase::new(data_dir_path);
-//
-//    db.set(String::from("heyo"), String::from("comeon there it is"));
-//
-//    let val = db.get("heyo")?;
-//    println!("value = {}", val.unwrap());
 
     Ok(())
 }
