@@ -6,7 +6,8 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::Error;
 use std::net;
-use std::net::{TcpListener, TcpStream};
+use std::net::{Shutdown, TcpListener, TcpStream};
+use std::str::from_utf8;
 
 // loads dictionary file and returns vec of all words
 fn load_word_dict() -> Vec<String> {
@@ -26,15 +27,24 @@ fn get_rand_word(all_words: &Vec<String>) -> String {
         .clone()
 }
 
-fn handle_stream(stream: TcpStream) {
-    info!("stream processing..");
+fn parse_msg_into_string(mut stream: TcpStream) -> String {
+    // stream read buffer
+    let mut buff = [0 as u8; 128];
+
+    // parse stream input
+    // TODO: error handling
+    stream.read(&mut buff).expect("failed to read from stream");
+    from_utf8(&buff).unwrap().to_string()
 }
 
 // start tcp listener
-fn start_server() -> std::io::Result<()> {
+fn start_server(_db: DaveBase) -> std::io::Result<()> {
     let listener = TcpListener::bind("127.0.0.1:3333")?;
+    info!("Waiting for messages on 3333");
     for stream in listener.incoming() {
-        handle_stream(stream?);
+        info!("Got something from stream...");
+        let msg = parse_msg_into_string(stream?);
+        info!("MSG -> {}", msg);
     }
     Ok(())
 }
@@ -62,7 +72,8 @@ fn main() -> Result<(), Error> {
         let _ = db.set(rand_key, rand_val);
     }
 
-    start_server();
+    // Start tcp listener
+    start_server(db);
 
     Ok(())
 }
