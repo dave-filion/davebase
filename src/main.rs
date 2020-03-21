@@ -5,6 +5,8 @@ use rand::seq::SliceRandom;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::Error;
+use std::net;
+use std::net::{TcpListener, TcpStream};
 
 // loads dictionary file and returns vec of all words
 fn load_word_dict() -> Vec<String> {
@@ -13,11 +15,8 @@ fn load_word_dict() -> Vec<String> {
     let result = f
         .read_to_string(&mut big_string)
         .expect("couldnt read dict to string");
-
     debug!("Read {} bytes into string", result);
-
-    let all_words: Vec<String> = big_string.split("\n").map(|s| s.to_string()).collect();
-    all_words
+    big_string.split("\n").map(|s| s.to_string()).collect()
 }
 
 fn get_rand_word(all_words: &Vec<String>) -> String {
@@ -25,6 +24,19 @@ fn get_rand_word(all_words: &Vec<String>) -> String {
         .choose(&mut rand::thread_rng())
         .expect("couldnt select random word")
         .clone()
+}
+
+fn handle_stream(stream: TcpStream) {
+    info!("stream processing..");
+}
+
+// start tcp listener
+fn start_server() -> std::io::Result<()> {
+    let listener = TcpListener::bind("127.0.0.1:3333")?;
+    for stream in listener.incoming() {
+        handle_stream(stream?);
+    }
+    Ok(())
 }
 
 fn main() -> Result<(), Error> {
@@ -37,11 +49,10 @@ fn main() -> Result<(), Error> {
     let all_words = load_word_dict();
     debug!("{} words loaded", all_words.len());
 
-    info!("Starting davebase...");
-
-    // clears existing data files in dir
+    info!("Clearing data...");
     DaveBase::clear_data("data");
 
+    info!("Starting davebase...");
     let mut db = DaveBase::new("data");
 
     // insert 100 random key/values
@@ -50,6 +61,8 @@ fn main() -> Result<(), Error> {
         let rand_val = get_rand_word(&all_words);
         let _ = db.set(rand_key, rand_val);
     }
+
+    start_server();
 
     Ok(())
 }
