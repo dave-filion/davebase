@@ -51,16 +51,17 @@ fn start_server(mut db: DaveBase) -> std::io::Result<()> {
 
         // seperate message by whitespace
         let all_args: Vec<&str> = msg.split_whitespace().collect();
+        let arg_len = all_args.len();
 
         // validate args
-        if all_args.is_empty() {
+        if arg_len == 0 {
             warn!("Not enough args, responding with help text");
             stream.write(b"Not valid input, send a correct command");
             continue;
         }
 
         // if only 1 arg, check if valid command
-        if all_args.len() == 1 {
+        if arg_len == 1 {
             match all_args[0].to_uppercase().as_str() {
                 "MERGE" => {
                     info!("Merge command received...");
@@ -78,6 +79,8 @@ fn start_server(mut db: DaveBase) -> std::io::Result<()> {
             }
             continue;
         }
+
+        // valid 2+ arg commands
 
         let cmd = all_args[0];
         let key = all_args[1];
@@ -138,7 +141,6 @@ fn main() -> Result<(), Error> {
 
     let data_dir = "data";
 
-    info!("Starting davebase...");
     let mut db = DaveBase::new(data_dir, MAX_BYTES_PER_FILE);
     start_server(db);
 
