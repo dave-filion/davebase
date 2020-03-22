@@ -9,6 +9,9 @@ use std::net;
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::str::from_utf8;
 
+// 10kb per file
+const MAX_BYTES_PER_FILE: u64 = 10 * 1024;
+
 // loads dictionary file and returns vec of all words
 fn load_word_dict() -> Vec<String> {
     let mut f = File::open("words.txt").expect("Need words.txt");
@@ -43,23 +46,49 @@ fn start_server(mut db: DaveBase) -> std::io::Result<()> {
     info!("Waiting for messages on 3333");
     for stream in listener.incoming() {
         let mut stream = stream.expect("Cant unwrap stream");
-        debug!("Got something from stream...");
         let msg = parse_msg_into_string(&stream);
-        debug!("MSG -> {}", msg);
+        debug!("INCOMING MSG -> {}", msg);
+
         // seperate message by whitespace
         let all_args: Vec<&str> = msg.split_whitespace().collect();
+
+        // validate args
         if all_args.is_empty() {
-            warn!("Empty args!");
+            warn!("Not enough args, responding with help text");
+            stream.write(b"Not valid input, send a correct command");
+            continue;
+        }
+
+        // if only 1 arg, check if valid command
+        if all_args.len() == 1 {
+            match all_args[0].to_uppercase().as_str() {
+                "MERGE" => {
+                    info!("Merge command received...");
+                    stream.write(b"OK");
+                }
+                "CLEARALL" => {
+                    info!("Clear command received...");
+                    // clear data files and reinit db
+                    db.clear_all_data();
+                    stream.write(b"OK");
+                }
+                _ => {
+                    warn!("Unknown command: {}", all_args[0]);
+                }
+            }
             continue;
         }
 
         let cmd = all_args[0];
         let key = all_args[1];
 
-        match cmd {
+        // make upper to make matching easier
+        match cmd.to_uppercase().as_str() {
             "SET" => {
                 let val = all_args[2];
                 db.set(key.to_string(), val.to_string());
+                // respond with OK
+                stream.write(b"OK");
             }
             "GET" => {
                 let result = db.get(key).unwrap();
@@ -80,11 +109,7 @@ fn start_server(mut db: DaveBase) -> std::io::Result<()> {
     Ok(())
 }
 
-fn main() -> Result<(), Error> {
-    // Load env variables and init logger
-    dotenv::dotenv().ok();
-    env_logger::init();
-
+fn test_with_random_words(db: &mut DaveBase) {
     // Start test
     info!("Loading dictionary...");
     let all_words = load_word_dict();
@@ -93,17 +118,28 @@ fn main() -> Result<(), Error> {
     info!("Clearing data...");
     DaveBase::clear_data("data");
 
-    info!("Starting davebase...");
-    let mut db = DaveBase::new("data");
-
     // insert 100 random key/values
     for _ in 0..100 {
         let rand_key = get_rand_word(&all_words);
         let rand_val = get_rand_word(&all_words);
         let _ = db.set(rand_key, rand_val);
     }
+}
 
-    // Start tcp listener
+fn clear_data(data_dir: &str) {
+    info!("Clearing all data");
+    DaveBase::clear_data(data_dir);
+}
+
+fn main() -> Result<(), Error> {
+    // Load env variables and init logger
+    dotenv::dotenv().ok();
+    env_logger::init();
+
+    let data_dir = "data";
+
+    info!("Starting davebase...");
+    let mut db = DaveBase::new(data_dir, MAX_BYTES_PER_FILE);
     start_server(db);
 
     Ok(())

@@ -12,8 +12,6 @@ use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 
-const MAX_BYTES: u64 = 512; // max bytes for file before new one is created
-
 // Struct stored in key dir to describe location of values in files
 #[derive(Debug)]
 pub struct ValueLocation {
@@ -233,6 +231,7 @@ pub struct DaveBase {
     active_file_id: usize,
     key_dir: KeyDirectory,
     data_dir: &'static str,
+    max_bytes_per_file: u64,
 }
 
 impl Drop for DaveBase {
@@ -241,18 +240,28 @@ impl Drop for DaveBase {
     }
 }
 
+fn init_db(data_dir: &str) -> (KeyDirectory, usize, File) {
+    // need to build key_dir from all files in data_dir
+    let key_dir = init_key_dir(data_dir);
+    let (active_file_id, active_file) = get_active_file(data_dir);
+    debug!("Creating new DB with active_file_id = {}", active_file_id);
+    (key_dir, active_file_id, active_file)
+}
+
 impl DaveBase {
-    pub fn new(data_dir: &'static str) -> DaveBase {
-        // need to build key_dir from all files in data_dir
-        let key_dir = init_key_dir(data_dir);
-        let (active_file_id, active_file) = get_active_file(data_dir);
-        debug!("Creating new DB with active_file_id = {}", active_file_id);
+    pub fn new(data_dir: &'static str, max_bytes_per_file: u64) -> DaveBase {
+        info!(
+            "Creating db with data_dir={} and max_bytes_per_file = {}",
+            data_dir, max_bytes_per_file
+        );
+        let (key_dir, active_file_id, active_file) = init_db(data_dir);
 
         DaveBase {
             active_file,
             active_file_id,
             key_dir,
             data_dir,
+            max_bytes_per_file,
         }
     }
 
@@ -328,7 +337,7 @@ impl DaveBase {
         // if current position is greater then max file size, create a new file
         // and move the active file pointer here
         //TODO: using value_pos as lose reference now, do it right
-        if value_pos > MAX_BYTES {
+        if value_pos > self.max_bytes_per_file {
             debug!("ACTIVE FILE HAS MORE BYTES THEN MAX: {}", value_pos);
             let new_file_id = self.active_file_id + 1;
             let file_path = dat_file_name(self.data_dir, new_file_id);
@@ -357,6 +366,17 @@ impl DaveBase {
             debug!("Deleting data file at path: {:?}", path);
             std::fs::remove_file(path);
         }
+    }
+
+    // deletes data files and reinits db (clear key_dir)
+    pub fn clear_all_data(&mut self) {
+        info!("Clearing all data...");
+        DaveBase::clear_data(self.data_dir);
+        // reinit db
+        let (key_dir, active_file_id, active_file) = init_db(self.data_dir);
+        self.key_dir = key_dir;
+        self.active_file_id = active_file_id;
+        self.active_file = active_file;
     }
 }
 #[cfg(test)]

@@ -1,6 +1,8 @@
 use super::*;
 use chrono::{FixedOffset, NaiveDateTime, TimeZone, Utc};
 
+const TEST_MAX_BYTES: u64 = 512;
+
 #[test]
 fn test_bytes_from_file_and_convert_to_string() {
     let path = "test-data/1.dat";
@@ -33,7 +35,7 @@ fn test_parse_row_entry() {
 #[test]
 fn test_get_value() {
     let data_dir = "test-data";
-    let db = DaveBase::new(data_dir);
+    let db = DaveBase::new(data_dir, TEST_MAX_BYTES);
     let result = db.get("foi");
 }
 
@@ -78,7 +80,7 @@ fn test_init_key_dir() {
 #[test]
 fn test_get_from_db() {
     let data_dir = "test-data";
-    let db = DaveBase::new(data_dir);
+    let db = DaveBase::new(data_dir, TEST_MAX_BYTES);
     let result = db.get("bong");
     match result {
         Ok(r) => {
@@ -97,7 +99,7 @@ fn test_get_from_db() {
 #[test]
 fn test_set_works() {
     let data_dir = "data";
-    let mut db = DaveBase::new(data_dir);
+    let mut db = DaveBase::new(data_dir, TEST_MAX_BYTES);
     db.set(String::from("fooz"), String::from("baz"));
     db.set(String::from("something"), String::from("somethingelse"));
     db.set(String::from("fooz"), String::from("goop"));
@@ -115,7 +117,7 @@ fn test_set_works() {
 #[test]
 fn test_decode_timestamp_field() {
     let data_dir = "data";
-    let mut db = DaveBase::new(data_dir);
+    let mut db = DaveBase::new(data_dir, TEST_MAX_BYTES);
     db.set(String::from("yo"), String::from("dude"));
     let val_loc = db.key_dir.get("yo").unwrap();
     let t = val_loc.timestamp;
