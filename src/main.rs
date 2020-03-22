@@ -27,24 +27,55 @@ fn get_rand_word(all_words: &Vec<String>) -> String {
         .clone()
 }
 
-fn parse_msg_into_string(mut stream: TcpStream) -> String {
+fn parse_msg_into_string(mut stream: &TcpStream) -> String {
     // stream read buffer
     let mut buff = [0 as u8; 128];
 
     // parse stream input
     // TODO: error handling
-    stream.read(&mut buff).expect("failed to read from stream");
-    from_utf8(&buff).unwrap().to_string()
+    let size = stream.read(&mut buff).expect("failed to read from stream");
+    from_utf8(&buff[0..size]).unwrap().to_string()
 }
 
 // start tcp listener
-fn start_server(_db: DaveBase) -> std::io::Result<()> {
+fn start_server(mut db: DaveBase) -> std::io::Result<()> {
     let listener = TcpListener::bind("127.0.0.1:3333")?;
     info!("Waiting for messages on 3333");
     for stream in listener.incoming() {
-        info!("Got something from stream...");
-        let msg = parse_msg_into_string(stream?);
-        info!("MSG -> {}", msg);
+        let mut stream = stream.expect("Cant unwrap stream");
+        debug!("Got something from stream...");
+        let msg = parse_msg_into_string(&stream);
+        debug!("MSG -> {}", msg);
+        // seperate message by whitespace
+        let all_args: Vec<&str> = msg.split_whitespace().collect();
+        if all_args.is_empty() {
+            warn!("Empty args!");
+            continue;
+        }
+
+        let cmd = all_args[0];
+        let key = all_args[1];
+
+        match cmd {
+            "SET" => {
+                let val = all_args[2];
+                db.set(key.to_string(), val.to_string());
+            }
+            "GET" => {
+                let result = db.get(key).unwrap();
+                match result {
+                    Some(val) => {
+                        // return value
+                        stream.write(val.into_bytes().as_slice());
+                    }
+                    None => {
+                        // write nil
+                        stream.write(b"NIL");
+                    }
+                }
+            }
+            _ => warn!("Unknown command: {}", cmd),
+        }
     }
     Ok(())
 }
