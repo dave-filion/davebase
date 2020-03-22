@@ -379,6 +379,16 @@ impl DaveBase {
         self.active_file_id = active_file_id;
         self.active_file = active_file;
     }
+
+    // Returns total size of all data files in bytes
+    pub fn get_total_data_size(&self) -> std::io::Result<u64> {
+        let mut total_size = 0;
+        for entry in std::fs::read_dir(self.data_dir)? {
+            let metadata = std::fs::metadata(entry?.path())?;
+            total_size += metadata.len();
+        }
+        Ok(total_size)
+    }
 }
 #[cfg(test)]
 mod test;

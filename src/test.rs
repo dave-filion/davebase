@@ -137,7 +137,9 @@ fn test_get_from_db() {
 
 #[test]
 fn test_set_works() {
-    let data_dir = "data";
+    let data_dir = "test_2";
+    DaveBase::clear_data(data_dir);
+
     let mut db = DaveBase::new(data_dir, TEST_MAX_BYTES);
     db.set(String::from("fooz"), String::from("baz"));
     db.set(String::from("something"), String::from("somethingelse"));
@@ -178,6 +180,20 @@ fn test_dat_file_name() {
     let data_dir = "data";
     let path = dat_file_name(data_dir, 23);
     println!("path = {}", path.to_str().unwrap());
+}
+
+#[test]
+fn test_get_size() {
+    let data_dir = "test_2";
+    DaveBase::clear_data(data_dir);
+
+    let mut db = DaveBase::new(data_dir, 512);
+    insert_100_test_entries(&mut db);
+
+    let size = db.get_total_data_size().unwrap();
+
+    println!("total size of data for 100 entries: {}", size);
+    assert!(size > 100);
 }
 
 #[test]
