@@ -76,7 +76,7 @@ fn string_from_bytes(v: Vec<u8>) -> String {
     String::from(std::str::from_utf8(v.as_slice()).unwrap())
 }
 
-fn int_64_to_byte_array(i: u64) -> [u8; 8] {
+pub fn int_64_to_byte_array(i: u64) -> [u8; 8] {
     let mut timestamp_byte_array = [0u8; std::mem::size_of::<u64>()];
     timestamp_byte_array
         .as_mut()

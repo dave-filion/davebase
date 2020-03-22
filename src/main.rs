@@ -58,8 +58,19 @@ fn start_server(mut db: DaveBase) -> std::io::Result<()> {
                     // error check
                     let _ = stream.write(b"OK");
                 }
+                "SIZE" => {
+                    info!("Get total size received...");
+                    let result = db.get_total_data_size();
+                    if let Ok(size) = result {
+                        let result_string = format!("size={} bytes", size);
+                        let _ = stream.write(result_string.into_bytes().as_slice());
+                    } else {
+                        let _ = stream.write(b"Couldnt fetch size");
+                    }
+                }
                 _ => {
                     warn!("Unknown command: {}", all_args[0]);
+                    let _ = stream.write(b"Unknown command");
                 }
             }
             continue;
@@ -100,8 +111,6 @@ fn start_server(mut db: DaveBase) -> std::io::Result<()> {
     }
     Ok(())
 }
-
-
 
 fn main() -> Result<(), Error> {
     // Load env variables and init logger
