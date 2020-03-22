@@ -5,30 +5,11 @@ use rand::seq::SliceRandom;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::Error;
-use std::net;
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream};
 use std::str::from_utf8;
 
 // 10kb per file
 const MAX_BYTES_PER_FILE: u64 = 10 * 1024;
-
-// loads dictionary file and returns vec of all words
-fn load_word_dict() -> Vec<String> {
-    let mut f = File::open("words.txt").expect("Need words.txt");
-    let mut big_string = String::new();
-    let result = f
-        .read_to_string(&mut big_string)
-        .expect("couldnt read dict to string");
-    debug!("Read {} bytes into string", result);
-    big_string.split("\n").map(|s| s.to_string()).collect()
-}
-
-fn get_rand_word(all_words: &Vec<String>) -> String {
-    all_words
-        .choose(&mut rand::thread_rng())
-        .expect("couldnt select random word")
-        .clone()
-}
 
 fn parse_msg_into_string(mut stream: &TcpStream) -> String {
     // stream read buffer
@@ -56,7 +37,8 @@ fn start_server(mut db: DaveBase) -> std::io::Result<()> {
         // validate args
         if arg_len == 0 {
             warn!("Not enough args, responding with help text");
-            stream.write(b"Not valid input, send a correct command");
+            // TODO error check
+            let _ = stream.write(b"Not valid input, send a correct command");
             continue;
         }
 
@@ -65,13 +47,16 @@ fn start_server(mut db: DaveBase) -> std::io::Result<()> {
             match all_args[0].to_uppercase().as_str() {
                 "MERGE" => {
                     info!("Merge command received...");
-                    stream.write(b"OK");
+                    //TODO error check
+                    let _ = stream.write(b"OK");
                 }
                 "CLEARALL" => {
                     info!("Clear command received...");
                     // clear data files and reinit db
                     db.clear_all_data();
-                    stream.write(b"OK");
+
+                    // error check
+                    let _ = stream.write(b"OK");
                 }
                 _ => {
                     warn!("Unknown command: {}", all_args[0]);
@@ -88,21 +73,25 @@ fn start_server(mut db: DaveBase) -> std::io::Result<()> {
         // make upper to make matching easier
         match cmd.to_uppercase().as_str() {
             "SET" => {
-                let val = all_args[2];
-                db.set(key.to_string(), val.to_string());
+                // TODO error check
+                let _ = db.set(key.to_string(), all_args[2].to_string());
+
                 // respond with OK
-                stream.write(b"OK");
+                // TODO error check
+                let _ = stream.write(b"OK");
             }
             "GET" => {
                 let result = db.get(key).unwrap();
                 match result {
                     Some(val) => {
                         // return value
-                        stream.write(val.into_bytes().as_slice());
+                        // TODO error check
+                        let _ = stream.write(val.into_bytes().as_slice());
                     }
                     None => {
                         // write nil
-                        stream.write(b"NIL");
+                        // TODO error check
+                        let _ = stream.write(b"NIL");
                     }
                 }
             }
@@ -112,27 +101,7 @@ fn start_server(mut db: DaveBase) -> std::io::Result<()> {
     Ok(())
 }
 
-fn test_with_random_words(db: &mut DaveBase) {
-    // Start test
-    info!("Loading dictionary...");
-    let all_words = load_word_dict();
-    debug!("{} words loaded", all_words.len());
 
-    info!("Clearing data...");
-    DaveBase::clear_data("data");
-
-    // insert 100 random key/values
-    for _ in 0..100 {
-        let rand_key = get_rand_word(&all_words);
-        let rand_val = get_rand_word(&all_words);
-        let _ = db.set(rand_key, rand_val);
-    }
-}
-
-fn clear_data(data_dir: &str) {
-    info!("Clearing all data");
-    DaveBase::clear_data(data_dir);
-}
 
 fn main() -> Result<(), Error> {
     // Load env variables and init logger
@@ -141,8 +110,6 @@ fn main() -> Result<(), Error> {
 
     let data_dir = "data";
 
-    let mut db = DaveBase::new(data_dir, MAX_BYTES_PER_FILE);
-    start_server(db);
-
-    Ok(())
+    let db = DaveBase::new(data_dir, MAX_BYTES_PER_FILE);
+    start_server(db)
 }

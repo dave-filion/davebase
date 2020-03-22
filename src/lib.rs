@@ -1,4 +1,4 @@
-use std::fs::{File, OpenOptions, ReadDir};
+use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::{Error, SeekFrom};
 use std::path::PathBuf;
@@ -364,7 +364,8 @@ impl DaveBase {
 
         for path in paths {
             debug!("Deleting data file at path: {:?}", path);
-            std::fs::remove_file(path);
+            // TODO: error check
+            let _ = std::fs::remove_file(path);
         }
     }
 
